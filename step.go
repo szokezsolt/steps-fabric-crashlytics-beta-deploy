@@ -5,136 +5,140 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
+	"github.com/bitrise-io/go-utils/command"
+	"github.com/bitrise-io/go-utils/fileutil"
 	"github.com/bitrise-io/go-utils/log"
+	"github.com/bitrise-io/go-utils/pathutil"
+	"github.com/bitrise-tools/go-steputils/input"
 )
 
-//"github.com/bitrise-tools/go-steputils/input"
-
-// =======================================
-// Functions
-// =======================================
-
-func validateRequiredInput(key string, value string) {
-	if value == "" {
-		log.Errorft("Missing required input: %s", key)
-		os.Exit(1)
-	}
-}
-
-func validateRequiredInputWithOptions(key string, value string, options []string) {
-	validateRequiredInput(key, value)
-	found := false
-	for _, option := range options {
-		if option == value {
-			found := true
-		}
-	}
-
-	if found == false {
-		log.Errorft("Invalid input: %s value: %s, valid options: %s", key, value, strings.Join(options, ", "))
-		os.Exit(1)
-	}
-}
-
-// =======================================
-// Main
-// =======================================
-
 func main() {
-	if thisScriptDir, err := filepath.Abs(filepath.Dir(os.Args[0])); err != nil {
-		fmt.Printf("Failed to retrieve current directory, error: %s", err)
+	// Ad-hoc parameters for pre-testing
+	apiKey := "0ER45T398T"
+	buildSecret := "EKFITKVKL"
+	ipaPath := "/Users/szokezsolt/Go/src/github.com/bitrise-io/steps-fabric-crashlytics-beta-deploy/_temp"
+	dsymPath := ipaPath
+	emailList := ""
+	groupAliasesList := ""
+	notification := ""
+	releaseNotes := "Release note v1.0: super release!"
+
+	// Real Main
+	currentDir, err := pathutil.CurrentWorkingDirectoryAbsolutePath()
+	if err != nil {
+		log.Errorft("Failed to retrieve current working directory, error: %s", err)
 		os.Exit(1)
 	}
 
 	// Validate parameters
 	log.Infoft("Configs:")
-	log.Printf("* api_key: ***")
-	log.Printf("* build_secret: ***")
-	log.Printf("* ipa_path: %s", ipa_path)
-	log.Printf("* dsym_path: %s", dsym_path)
-	log.Printf("* email_list: %s", email_list)
-	log.Printf("* group_aliases_list: %s", group_aliases_list)
-	log.Printf("* notification: %s", notification)
-	log.Printf("* release_notes: %s", release_notes)
+	log.Printf("* API key: ***")
+	log.Printf("* Build secret: ***")
+	log.Printf("* IPA path: %s", ipaPath)
+	log.Printf("* DSYM path: %s", dsymPath)
+	log.Printf("* Email list: %s", emailList)
+	log.Printf("* Group aliases' list: %s", groupAliasesList)
+	log.Printf("* Notification: %s", notification)
+	log.Printf("* Release notes: %s", releaseNotes)
 	log.Printf("\n")
 
-	// validateRequiredInput("api_key", api_key)
-	// validateRequiredInput("build_secret", build_secret)
-
-	if dsym_path == "" && ipa_path == "" {
-		log.Errorft("No IPA path nor DSYM path defined")
+	if err := input.ValidateIfNotEmpty(apiKey); err != nil {
+		log.Errorft("API key error: %s", err)
 		os.Exit(1)
 	}
 
-	if ipa_path != "" {
-		if _, err := os.Stat(ipa_path); os.IsNotExist(err) {
-			log.Errorft("IPA path defined, but the file does not exist at path: %s", ipa_path)
+	if err := input.ValidateIfNotEmpty(buildSecret); err != nil {
+		log.Errorft("Build secret error: %s", err)
+		os.Exit(1)
+	}
+
+	if err := input.ValidateIfNotEmpty(dsymPath); err != nil {
+		if err := input.ValidateIfNotEmpty(ipaPath); err != nil {
+			log.Errorft("No IPA path nor DSYM path defined")
+			os.Exit(1)
+		}
+	}
+
+	if err := input.ValidateIfNotEmpty(ipaPath); err == nil {
+		isPathExists, err := pathutil.IsPathExists(ipaPath)
+		if isPathExists == false {
+			log.Errorft("IPA path defined, but the file does not exist at path: %s", ipaPath)
+		} else if err != nil {
+			log.Errorft("Failed to retrieve the contents of IPA path, error: %s", err)
 		}
 
-		// - Release Notes: save to file
-		ConfigReleaseNotesPth := string(os.Getenv("HOME")) + "/app_release_notes.txt"
-		ConfigReleaseNotesPth.WriteString(release_notes)
+		// - Release Notes: save to file - using a temporary directory
+		configReleaseNotesPth, err := pathutil.NormalizedOSTempDirPath("configReleaseNotes")
+		if err != nil {
+			log.Errorft("Failed to create config release notes path, error: %s", err)
+			os.Exit(1)
+		}
+
+		configReleaseNotesPth = filepath.Join(configReleaseNotesPth, "app_releaseNotes.txt")
+		fileutil.WriteStringToFile(configReleaseNotesPth, releaseNotes)
 
 		// - Optional params
 		paramEmails := ""
-		if email_list != "" {
-			paramEmails = fmt.Sprintf("-emails " + email_list)
+		if emailList != "" {
+			paramEmails = fmt.Sprintf("-emails " + emailList)
 		}
 
 		paramGroups := ""
-		if group_aliases_list != "" {
-			paramGroups = fmt.Sprintf("-groupAliases " + group_aliases_list)
+		if groupAliasesList != "" {
+			paramGroups = fmt.Sprintf("-groupAliases " + groupAliasesList)
 		}
 
-		ConfigIsSendNotifications := "YES"
+		configIsSendNotifications := "YES"
 		if notification == "No" {
-			ConfigIsSendNotifications = "NO"
+			configIsSendNotifications = "NO"
 		}
 
 		// - Submit IPA
 		log.Infoft("Submitting IPA...")
-		submitCmd := filepath.Join(thisScriptDir, "Fabric/submit")
-		submitCmd += fmt.Sprintf("\\%s \\%s", api_key, build_secret)
-		submitCmd += fmt.Sprintf("-ipaPath \\%s -notesPath \\%s", ipa_path, ConfigReleaseNotesPth)
-		submitCmd += fmt.Sprintf("-notifications \\%s%s%s", ConfigIsSendNotifications, paramEmails, paramGroups)
-		log.Printf(submitCmd)
+		submitIPACmd := filepath.Join(currentDir, "Fabric/submit")
+		submitIPACmd += fmt.Sprintf("\\%s \\%s", apiKey, buildSecret)
+		submitIPACmd += fmt.Sprintf("-ipaPath \\%s -notesPath \\%s", ipaPath, configReleaseNotesPth)
+		submitIPACmd += fmt.Sprintf("-notifications \\%s%s%s", configIsSendNotifications, paramEmails, paramGroups)
+		log.Printf(submitIPACmd)
 		log.Printf("\n")
 
-		out, err := exec.Command(submitCmd).Output()
+		//out, err := exec.Command(submitCmd).Output()
+		out, err := command.RunCmdAndReturnExitCode(exec.Command(submitIPACmd))
 		if err != nil {
 			log.Errorft(fmt.Sprintf("Error submitting the IPA, error: %s", err))
 			os.Exit(1)
-		} else if out == 1 {
-			log.Doneft("Success")
+		} else if out == 0 {
+			log.Doneft("IPA successfully submitted")
 		} else {
-			log.Errorft("Fail")
+			log.Errorft("IPA submit failed")
 			os.Exit(1)
 		}
 	}
 
 	// - Submit DSYM
-	if dsym_path != "" {
-		if _, err := os.Stat(dsym_path); os.IsNotExist(err) {
-			log.Errorft("DSYM path defined, but the file does not exist at path: %s", dsym_path)
-			os.Exit(1)
+	if err := input.ValidateIfNotEmpty(dsymPath); err == nil {
+		isPathExists, err := pathutil.IsPathExists(dsymPath)
+		if isPathExists == false {
+			log.Errorft("DSYM path defined, but the file does not exist at path: %s", ipaPath)
+		} else if err != nil {
+			log.Errorft("Failed to retrieve the contents of DSYM path, error: %s", err)
 		}
 
 		log.Infoft("Submitting DSYM...")
-		dsymCmd := filepath.Join(ThisScriptDir, "Fabric/upload-symbols")
-		dsymCmd += fmt.Sprintf("-a \\%s -p ios \\%s", api_key, dsym_path)
-		log.Printf(dsymCmd)
+		submitDSYMCmd := filepath.Join(currentDir, "Fabric/upload-symbols")
+		submitDSYMCmd += fmt.Sprintf("-a \\%s -p ios \\%s", apiKey, dsymPath)
+		log.Printf(submitDSYMCmd)
 		log.Printf("\n")
 
-		out, err := exec.Command(dsymCmd).Output()
+		out, err := command.RunCmdAndReturnExitCode(exec.Command(submitDSYMCmd))
 		if err != nil {
 			log.Errorft(fmt.Sprintf("Error submitting the DSYM, error: %s", err))
 			os.Exit(1)
-		} else if out == 1 {
-			log.Doneft("Success")
+		} else if out == 0 {
+			log.Doneft("DSYM successfully submitted")
 		} else {
-			log.Errorft("Fail")
+			log.Errorft("DSYM submit failed")
 			os.Exit(1)
 		}
 	}
