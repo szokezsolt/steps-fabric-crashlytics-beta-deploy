@@ -28,6 +28,9 @@ is_always_run: false
 is_skippable: false
 dependencies: []
 run_if: ""
+toolkit:
+  go:
+    package_name: github.com/bitrise-io/steps-fabric-crashlytics-beta-deploy
 inputs:
   - api_key: ""
     opts:
