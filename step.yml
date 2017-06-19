@@ -97,4 +97,6 @@ inputs:
       title: "Release Notes"
       summary: ""
       description: ""
+  - work_dir: "$BITRISE_SOURCEDIR"
+  - framework_path: "./ios-simple-objc/Crashlytics.framework"
 outputs: []
